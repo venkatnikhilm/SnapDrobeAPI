@@ -8,6 +8,7 @@ import json
 from pydantic import BaseModel
 import boto3
 from uuid import uuid4
+from boto3.dynamodb.types import TypeSerializer
 
 load_dotenv()
 
@@ -33,7 +34,6 @@ class Article(BaseModel):
     season: str
     style: str
     ways_to_wear: list[str]
-    image_b64: str
 
 class GeminiArticleResponse(BaseModel):
     article: Article
@@ -49,36 +49,60 @@ class ExplainResponse(Model):
 agent = Agent(
     name="explanation_agent",
     seed=os.getenv("AGENT_SEED"),
-    port=8001,
-    endpoint=["http://0.0.0.0:8001/submit"],
+    port=8002,
+    endpoint=["http://0.0.0.0:8002/submit"],
 )
 
 @agent.on_rest_post("/add_image", ExplainRequest, ExplainResponse)
 async def handle_add_image(ctx: Context, req: ExplainRequest) -> ExplainResponse:
     img_bytes = base64.b64decode(req.image_b64)
-    tmp_path = "/tmp/cap.jpg"
-    with open(tmp_path, "wb") as f:
-        f.write(img_bytes)
+    # tmp_path = "/tmp/cap.jpg"
+    # with open(tmp_path, "wb") as f:
+    #     f.write(img_bytes)
 
-    uploaded = client.files.upload(file=tmp_path)
+    # uploaded = client.files.upload(file=tmp_path)
+    prompt = f"Based on the input image, extract all the relevant information and a sassy response to say that the image has been added to the database (Basically, remembered). Return the output in the following schema: \n\n\n{json.dumps(GeminiArticleResponse.model_json_schema(), indent=2)}"
+    print("PROMPT:", prompt)
     mind = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=[
-            types.Part.from_text(text="Based on the input image, extract all the relevant information and a sassy response to say that the image has been added to the database (Basically, remembered)."),
-            types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
+            types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
+            # types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
+            types.Part.from_text(text=prompt),
+            # "Based on the input image, extract all the relevant information and a sassy response to say that the image has been added to the database (Basically, remembered)."
         ],
-        config={
-            "response_type": "application/json",
-            "response_schema": GeminiArticleResponse
-        }
+        # config=types.GenerateContentConfig(
+        #     response_modalities=["TEXT"]  # Replace response_type with response_modalities
+        # )
     )
-    response = json.loads(mind.text)
+    output = mind.text.replace("```json", "").replace("```", "")
+    # print("OUTPUT:", output)
+    if not output:
+        raise ValueError("The response from generate_content is empty or invalid.")
+    try:
+        response = json.loads(output)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to decode JSON: {e}") from e
     data = response["article"]
-    data["id"] = str(uuid4())
+    # data["id"] = str(uuid4())
+    # data["image_b64"] = req.image_b64
+
+    # dynamo_client.put_item(
+    #     TableName=os.getenv("DYNAMODB_TABLE_NAME"),
+    #     Item={
+    #         str(uuid4()): data
+    #     }
+    # )
+    data["id"] = str(uuid4())  # Add a unique ID to the item
+
+    # Serialize the data for DynamoDB
+    serializer = TypeSerializer()
+    dynamo_item = {k: serializer.serialize(v) for k, v in data.items()}
+    print("DynamoDB Item:", dynamo_item)
 
     dynamo_client.put_item(
         TableName=os.getenv("DYNAMODB_TABLE_NAME"),
-        Item=data
+        Item=dynamo_item
     )
 
     return response["return_response"]
