@@ -70,12 +70,12 @@ class WardrobeRequest(Model):
 class WardrobeResponse(Model):
     articles: list
 
+port = int(os.getenv("PORT", 8000))  # fallback for local dev
 agent = Agent(
     name="explanation_agent",
     seed=os.getenv("AGENT_SEED"),
-    port=8002,
-    endpoint=["http://0.0.0.0:8002/submit"],
-)
+    port=port,
+    endpoint=[f"http://0.0.0.0:{port}/submit"],
 
 @agent.on_rest_get("/")
 async def handle_root(ctx: Context) -> dict:
