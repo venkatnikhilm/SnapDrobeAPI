@@ -76,6 +76,7 @@ agent = Agent(
     seed=os.getenv("AGENT_SEED"),
     port=port,
     endpoint=[f"http://0.0.0.0:{port}/submit"],
+)
 
 @agent.on_rest_get("/")
 async def handle_root(ctx: Context) -> dict:
