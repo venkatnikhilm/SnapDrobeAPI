@@ -70,6 +70,12 @@ class WardrobeRequest(Model):
 class WardrobeResponse(Model):
     articles: list
 
+class RootResponse(BaseModel):
+    message: str
+    endpoints: list[dict]
+
+
+
 port = int(os.getenv("PORT", 8000))  # fallback for local dev
 agent = Agent(
     name="explanation_agent",
@@ -78,15 +84,15 @@ agent = Agent(
     endpoint=[f"http://0.0.0.0:{port}/submit"],
 )
 
-@agent.on_rest_get("/")
-async def handle_root(ctx: Context) -> dict:
-    return {
-        "message": "Welcome to the Snapdrobe API!",
-        "endpoints": [
+@agent.on_rest_get("/", RootResponse)
+async def handle_root(ctx: Context) -> RootResponse:
+    return RootResponse(
+        message="Welcome to the Snapdrobe API!",
+        endpoints=[
             {"method": "POST", "path": "/add_image", "description": "Add an image to the database."},
             {"method": "POST", "path": "/ask", "description": "Ask for outfit recommendations based on input."},
         ]
-    }
+    )
 
 @agent.on_rest_post("/add_image", AddImageRequest, AddImageResponse)
 async def handle_add_image(ctx: Context, req: AddImageRequest) -> AddImageResponse:
