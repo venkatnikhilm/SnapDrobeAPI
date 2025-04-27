@@ -77,7 +77,7 @@ agent = Agent(
     endpoint=["http://0.0.0.0:8002/submit"],
 )
 
-@agent.on_rest_get("/", None, None)
+@agent.on_rest_get("/")
 async def handle_root(ctx: Context) -> dict:
     return {
         "message": "Welcome to the Snapdrobe API!",
