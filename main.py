@@ -198,7 +198,7 @@ async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
     }}
     """
     response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-04-17",
+        model="gemini-2.0-flash",
         contents=combined_prompt,
     )
     data = json.loads(response.text.replace("```json", "").replace("```", ""))
