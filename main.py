@@ -109,12 +109,12 @@ async def handle_add_image(ctx: Context, req: AddImageRequest) -> AddImageRespon
         Item=dynamo_item
     )
 
-    audio = tts.text_to_speech.convert(
-        text=response["return_response"],
-        voice_id="56AoDkrOh6qfVPDXZ7Pt",
-        model_id="eleven_multilingual_v2",
-        output_format="mp3_44100_128",
-    )
+    # audio = tts.text_to_speech.convert(
+    #     text=response["return_response"],
+    #     voice_id="56AoDkrOh6qfVPDXZ7Pt",
+    #     model_id="eleven_multilingual_v2",
+    #     output_format="mp3_44100_128",
+    # )
 
     return AddImageResponse(
         return_response=response["return_response"],
