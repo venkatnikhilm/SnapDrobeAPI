@@ -206,7 +206,7 @@ async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
     return_prompt = data["return_prompt"]
     # --- Image Generation Step (using the correct experimental model) ---
 
-    full_image_prompt = f"""Generate a realistic image of a person wearing this outfit. Match the styles, fabrics, colors (in HEX), patterns, and descriptions precisely. The image should show the complete head to torse of the person wearing this outfit Clothing Articles:{json.dumps(articles, indent=2)}"""
+    full_image_prompt = f"""Generate a realistic image of a person wearing this outfit. Match the styles, fabrics, colors (in HEX), patterns, and descriptions precisely. The image should show the complete head to torse of the person wearing this outfit. The complete outfit must also be seen in the image. Clothing Articles:{json.dumps(articles, indent=2)}"""
 
     image_generation_response = client.models.generate_content(
     model="gemini-2.0-flash-exp-image-generation",
