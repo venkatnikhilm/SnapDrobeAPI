@@ -2,3 +2,4 @@ google-genai
 python-dotenv
 uagents
 boto3
+elevenlabs

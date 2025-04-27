@@ -8,7 +8,10 @@ import json
 from pydantic import BaseModel
 import boto3
 from uuid import uuid4
-from boto3.dynamodb.types import TypeSerializer
+from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
+from typing import Literal
+from elevenlabs.client import ElevenLabs
+from elevenlabs import play
 
 load_dotenv()
 
@@ -19,32 +22,48 @@ dynamo_client = boto3.client(
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
+tts = ElevenLabs(
+  api_key=os.getenv("ELEVENLABS_API_KEY"),
+)
 
 class Article(BaseModel):
-    main_category: str
-    sub_category: str
+    main_category: Literal["Topwear", "Bottomwear", "Innerwear", "Footwear", "Accessories"]
+    sub_category: Literal["T-shirt", "Shirt", "Pants", "Shorts", "Skirt", "Dress", "Shoes", "Socks", "Belt", "Hat", "Scarf", "Jacket", "Coat", "Sweater", "Gloves", "Bag", "Jewelry", "Watch", "Sunglasses", "Umbrella"]
     primary_color: str
     secondary_color: str
     other_colors: list[str]
-    pattern: str
+    pattern: Literal["Solid", "Striped", "Checked", "Floral", "Polka Dot", "Geometric", "Animal Print", "Graphic", "Textured", "Plaid"]
     description: str
-    gender: str
-    approximate_age_of_wearer: str
-    occasion: str
-    season: str
-    style: str
+    gender: Literal["Male", "Female", "Unisex"]
+    age_group: Literal["Child", "Teenager", "Young Adult", "Adult", "Senior"]
+    occasion: Literal["Casual", "Formal", "Party", "Sports", "Beach", "Travel", "Wedding", "Office", "Outdoor", "Gym"]
+    weather: Literal["Sunny", "Rainy", "Snowy", "Windy", "Cloudy", "Foggy", "Stormy", "Hot", "Cold"]
+    style_description: str
     ways_to_wear: list[str]
 
 class GeminiArticleResponse(BaseModel):
     article: Article
     return_response: str
 
-class ExplainRequest(Model):
+class AddImageRequest(Model):
     image_b64: str
 
-class ExplainResponse(Model):
-    mind_map_image_url: str
-    transcription: str
+class AddImageResponse(Model):
+    return_response: str
+    # audio_blob: bytes
+
+class AskRequest(Model):
+    input_prompt: str
+
+class AskResponse(Model):
+    return_prompt: str
+    articles: list[dict]
+
+class WardrobeRequest(Model):
+    pass
+
+class WardrobeResponse(Model):
+    articles: list
 
 agent = Agent(
     name="explanation_agent",
@@ -53,30 +72,25 @@ agent = Agent(
     endpoint=["http://0.0.0.0:8002/submit"],
 )
 
-@agent.on_rest_post("/add_image", ExplainRequest, ExplainResponse)
-async def handle_add_image(ctx: Context, req: ExplainRequest) -> ExplainResponse:
+@agent.on_rest_post("/add_image", AddImageRequest, AddImageResponse)
+async def handle_add_image(ctx: Context, req: AddImageRequest) -> AddImageResponse:
     img_bytes = base64.b64decode(req.image_b64)
-    # tmp_path = "/tmp/cap.jpg"
-    # with open(tmp_path, "wb") as f:
-    #     f.write(img_bytes)
+    prompt = f"""
+        Based on the input image, extract all the relevant information and a
+        sassy response to say that the image has been added to the database (Basically, remembered).
+        Return the output in the following schema:
+        {json.dumps(GeminiArticleResponse.model_json_schema(), indent=2)}
 
-    # uploaded = client.files.upload(file=tmp_path)
-    prompt = f"Based on the input image, extract all the relevant information and a sassy response to say that the image has been added to the database (Basically, remembered). Return the output in the following schema: \n\n\n{json.dumps(GeminiArticleResponse.model_json_schema(), indent=2)}"
-    print("PROMPT:", prompt)
+        Remember - 
+            - The colours should always be in hex format."""
     mind = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash-preview-04-17",
         contents=[
             types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
-            # types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
             types.Part.from_text(text=prompt),
-            # "Based on the input image, extract all the relevant information and a sassy response to say that the image has been added to the database (Basically, remembered)."
         ],
-        # config=types.GenerateContentConfig(
-        #     response_modalities=["TEXT"]  # Replace response_type with response_modalities
-        # )
     )
     output = mind.text.replace("```json", "").replace("```", "")
-    # print("OUTPUT:", output)
     if not output:
         raise ValueError("The response from generate_content is empty or invalid.")
     try:
@@ -84,74 +98,56 @@ async def handle_add_image(ctx: Context, req: ExplainRequest) -> ExplainResponse
     except json.JSONDecodeError as e:
         raise ValueError(f"Failed to decode JSON: {e}") from e
     data = response["article"]
-    # data["id"] = str(uuid4())
-    # data["image_b64"] = req.image_b64
-
-    # dynamo_client.put_item(
-    #     TableName=os.getenv("DYNAMODB_TABLE_NAME"),
-    #     Item={
-    #         str(uuid4()): data
-    #     }
-    # )
-    data["id"] = str(uuid4())  # Add a unique ID to the item
+    data["id"] = str(uuid4())
 
     # Serialize the data for DynamoDB
     serializer = TypeSerializer()
     dynamo_item = {k: serializer.serialize(v) for k, v in data.items()}
-    print("DynamoDB Item:", dynamo_item)
 
     dynamo_client.put_item(
         TableName=os.getenv("DYNAMODB_TABLE_NAME"),
         Item=dynamo_item
     )
 
-    return response["return_response"]
-
-
-@agent.on_rest_post("/explain", ExplainRequest, ExplainResponse)
-async def handle_explain(ctx: Context, req: ExplainRequest) -> ExplainResponse:
-    img_bytes = base64.b64decode(req.image_b64)
-    tmp_path = "/tmp/cap.jpg"
-    with open(tmp_path, "wb") as f:
-        f.write(img_bytes)
-
-    uploaded = client.files.upload(file=tmp_path)
-    mind = client.models.generate_content(
-        model="gemini-2.0-flash-exp-image-generation",
-        contents=[
-            types.Part.from_text(text="Create an image that visualizes the story from the text in the input image"),
-            types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
-        ],
-        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+    audio = tts.text_to_speech.convert(
+        text=response["return_response"],
+        voice_id="56AoDkrOh6qfVPDXZ7Pt",
+        model_id="eleven_multilingual_v2",
+        output_format="mp3_44100_128",
     )
 
-    candidates = mind.candidates or []
-    if not candidates:
-        raise RuntimeError("No candidates returned from image generation")
-    parts = candidates[0].content.parts or []
-    img_part = next((p for p in parts if p.inline_data), None)
-    if img_part is None:
-        raise RuntimeError(f"No inline image data found; available parts: {parts!r}")
-
-    mime = img_part.inline_data.mime_type
-    img_b64 = base64.b64encode(img_part.inline_data.data).decode()
-    img = base64.b64decode(img_b64)
-    mind_url = f"data:{mime};base64,{img_b64}"
-    tmp_path = "mind_map.jpg"
-    with open(tmp_path, "wb") as f:
-        f.write(img)
-
-    summ = client.models.generate_content(
-        model="gemini-2.0-flash-001",
-        contents=[
-            types.Part.from_text(text="Summarize this image in simple language."),
-            types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
-        ],
+    return AddImageResponse(
+        return_response=response["return_response"],
+        # audio_blob=audio,
     )
 
-    return ExplainResponse(
-        mind_map_image_url=mind_url,
-        transcription=summ.text,
+# @agent.on_rest_get("/wardrobe", WardrobeRequest, WardrobeResponse)
+# async def handle_wardrobe(ctx: Context, req: WardrobeRequest) -> WardrobeResponse:
+#     response = dynamo_client.scan(
+#         TableName=os.getenv("DYNAMODB_TABLE_NAME"),
+#     )
+#     items = response.get("Items", [])
+#     return WardrobeResponse(
+#         articles=items
+#     )    
+
+@agent.on_rest_post("/ask", AskRequest, AskResponse)
+async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
+    input_prompt = req.input_prompt
+    response = dynamo_client.scan(
+        TableName=os.getenv("DYNAMODB_TABLE_NAME"),
+    )
+    deserializer = TypeDeserializer()
+    items = list(map(lambda item: {k: deserializer.deserialize(v) for (k, v) in item.items()}, response.get("Items", [])))
+    # items_schema = 
+    response = client.models.generate_content(
+        model="gemini-2.5-pro-exp-03-25",
+        contents=f"Using the following input and the database return an outfit consisting of a bunch of articles that are appropriate to wear given the conditions mentioned in the input prompt.\n\nInput Prompt - \n{input_prompt}\n\nDatabase - \n{json.dumps(items, indent=2)}\n\nReturn the output in the following schema: \n\n\n{{articles: [{json.dumps(Article.model_json_schema(), indent=2)}], return_prompt: str}}",
+    )
+    data = json.loads(response.text.replace("```json", "").replace("```", ""))
+    return AskResponse(
+        return_prompt=data["return_prompt"],
+        articles=data["articles"]
     )
 
 if __name__ == "__main__":
