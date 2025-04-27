@@ -10,8 +10,12 @@ import boto3
 from uuid import uuid4
 from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 from typing import Literal
-from elevenlabs.client import ElevenLabs
-from elevenlabs import play
+import requests
+from PIL import Image
+from io import BytesIO
+import base64
+# from elevenlabs.client import ElevenLabs
+# from elevenlabs import play
 
 load_dotenv()
 
@@ -22,9 +26,9 @@ dynamo_client = boto3.client(
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
-tts = ElevenLabs(
-  api_key=os.getenv("ELEVENLABS_API_KEY"),
-)
+# tts = ElevenLabs(
+#   api_key=os.getenv("ELEVENLABS_API_KEY"),
+# )
 
 class Article(BaseModel):
     main_category: Literal["Topwear", "Bottomwear", "Innerwear", "Footwear", "Accessories"]
@@ -57,7 +61,8 @@ class AskRequest(Model):
 
 class AskResponse(Model):
     return_prompt: str
-    articles: list[dict]
+    image_b64: str
+    # articles: list[dict]
 
 class WardrobeRequest(Model):
     pass
@@ -134,21 +139,87 @@ async def handle_add_image(ctx: Context, req: AddImageRequest) -> AddImageRespon
 @agent.on_rest_post("/ask", AskRequest, AskResponse)
 async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
     input_prompt = req.input_prompt
+    weather_api_key = os.getenv("OPENWEATHER_API_KEY")
+    location = "Los Angeles,US"
+    # weather_url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={weather_api_key}&units=metric"
+    weather_url = f"https://api.openweathermap.org/data/3.0/onecall?lat=34.0549&lon=-118.2426&exclude=minutely,hourly,alerts&units=metric&appid=4244499cf74b39bae97df3fa9189abbf" 
+    gender = "Female"
+
+    weather_response = requests.get(weather_url)
+    if weather_response.status_code != 200:
+        raise Exception(f"Failed to fetch weather data: {weather_response.status_code} {weather_response.text}")
+    
+    weather_data = weather_response.json()
+    # weather_description = weather_data["weather"][0]["description"]
+    # temperature = {weather_data.temperature}
+
+    
+
     response = dynamo_client.scan(
         TableName=os.getenv("DYNAMODB_TABLE_NAME"),
     )
     deserializer = TypeDeserializer()
     items = list(map(lambda item: {k: deserializer.deserialize(v) for (k, v) in item.items()}, response.get("Items", [])))
     # items_schema = 
+    combined_prompt = f"""
+    Input Prompt: {input_prompt}
+    
+    Current Location: {location}
+    Current Weather: {weather_data}
+    Gender: {gender}
+    
+    Using this information, select an outfit consisting of articles that are appropriate for the given input and weather conditions.
+
+    Wardrobe Database:
+    {json.dumps(items, indent=2)}
+    
+    Return the output in the following schema:
+
+    {{
+        "articles": [{json.dumps(Article.model_json_schema(), indent=2)}],
+        "return_prompt": "text describing the outfit in a sassy/cool way"
+    }}
+    """
     response = client.models.generate_content(
         model="gemini-2.5-pro-exp-03-25",
-        contents=f"Using the following input and the database return an outfit consisting of a bunch of articles that are appropriate to wear given the conditions mentioned in the input prompt.\n\nInput Prompt - \n{input_prompt}\n\nDatabase - \n{json.dumps(items, indent=2)}\n\nReturn the output in the following schema: \n\n\n{{articles: [{json.dumps(Article.model_json_schema(), indent=2)}], return_prompt: str}}",
+        contents=combined_prompt,
     )
     data = json.loads(response.text.replace("```json", "").replace("```", ""))
+    articles = data["articles"]
+    return_prompt = data["return_prompt"]
+    # --- Image Generation Step (using the correct experimental model) ---
+
+    full_image_prompt = f"""Generate a realistic image of a person wearing this outfit. Match the styles, fabrics, colors (in HEX), patterns, and descriptions precisely. The image should show the complete head to torse of the person wearing this outfit Clothing Articles:{json.dumps(articles, indent=2)}"""
+
+    image_generation_response = client.models.generate_content(
+    model="gemini-2.0-flash-exp-image-generation",
+    contents=full_image_prompt,
+    config=types.GenerateContentConfig(
+    response_modalities=['TEXT', 'IMAGE']
+    )    )
+
+        # Extract the image data from the part
+    for part in image_generation_response.candidates[0].content.parts:
+        if part.text is not None:
+            print(part.text)
+        elif part.inline_data is not None:
+            image = Image.open(BytesIO((part.inline_data.data)))
+            # image.save('gemini-native-image.png')
+            image_b64 = base64.b64encode(image.tobytes()).decode('utf-8')
+
+
+
+    # --- End of Image Generation Step ---
+
     return AskResponse(
-        return_prompt=data["return_prompt"],
-        articles=data["articles"]
+        return_prompt=return_prompt,
+        image_b64=image_b64
+        # You might still want to return the articles data
+        # articles=articles,
+        # outfit_image_b64=image_b64 # Return the generated image (if successful)
     )
+
+
 
 if __name__ == "__main__":
     agent.run()
