@@ -77,6 +77,16 @@ agent = Agent(
     endpoint=["http://0.0.0.0:8002/submit"],
 )
 
+@agent.on_rest_get("/", None, None)
+async def handle_root(ctx: Context) -> dict:
+    return {
+        "message": "Welcome to the Snapdrobe API!",
+        "endpoints": [
+            {"method": "POST", "path": "/add_image", "description": "Add an image to the database."},
+            {"method": "POST", "path": "/ask", "description": "Ask for outfit recommendations based on input."},
+        ]
+    }
+
 @agent.on_rest_post("/add_image", AddImageRequest, AddImageResponse)
 async def handle_add_image(ctx: Context, req: AddImageRequest) -> AddImageResponse:
     img_bytes = base64.b64decode(req.image_b64)
