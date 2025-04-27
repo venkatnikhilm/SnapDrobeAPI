@@ -198,7 +198,7 @@ async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
     }}
     """
     response = client.models.generate_content(
-        model="gemini-2.5-pro-exp-03-25",
+        model="gemini-2.5-flash-preview-04-17",
         contents=combined_prompt,
     )
     data = json.loads(response.text.replace("```json", "").replace("```", ""))
@@ -221,8 +221,10 @@ async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
             print(part.text)
         elif part.inline_data is not None:
             image = Image.open(BytesIO((part.inline_data.data)))
+            buffered = BytesIO()
+            image.save(buffered, format="JPEG")
             # image.save('gemini-native-image.png')
-            image_b64 = base64.b64encode(image.tobytes()).decode('utf-8')
+            image_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 
 
