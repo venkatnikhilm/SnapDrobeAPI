@@ -159,7 +159,7 @@ async def handle_ask(ctx: Context, req: AskRequest) -> AskResponse:
     weather_api_key = os.getenv("OPENWEATHER_API_KEY")
     location = "Los Angeles,US"
     # weather_url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={weather_api_key}&units=metric"
-    weather_url = f"https://api.openweathermap.org/data/3.0/onecall?lat=34.0549&lon=-118.2426&exclude=minutely,hourly,alerts&units=metric&appid=4244499cf74b39bae97df3fa9189abbf" 
+    weather_url = f"https://api.openweathermap.org/data/3.0/onecall?lat=34.0549&lon=-118.2426&exclude=minutely,hourly,alerts&units=metric&appid={weather_api_key}" 
     gender = "Female"
 
     weather_response = requests.get(weather_url)
